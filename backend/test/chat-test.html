@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<!-- filepath: d:\MyJob\Classroom-Management-App\backend\test\chat-test.html -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Test - Classroom Management</title>
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .chat-box { border: 1px solid #ddd; height: 400px; overflow-y: auto; padding: 10px; margin: 10px 0; }
+        .message { margin: 5px 0; padding: 8px; border-radius: 5px; }
+        .instructor { background-color: #e3f2fd; text-align: right; }
+        .student { background-color: #f3e5f5; text-align: left; }
+        .input-group { display: flex; gap: 10px; margin: 10px 0; }
+        input { flex: 1; padding: 8px; }
+        button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .status { margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 4px; }
+        .typing { font-style: italic; color: #666; }
+        .user-section { border: 1px solid #ccc; margin: 10px 0; padding: 15px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎓 Classroom Chat Test</h1>
+        
+        <div class="status" id="connection-status">
+            ⏳ Connecting to server...
+        </div>
+
+        <!-- Instructor Section -->
+        <div class="user-section">
+            <h3>👨‍🏫 Instructor Panel</h3>
+            <div class="input-group">
+                <button onclick="authenticateInstructor()">Login as Instructor</button>
+                <span id="instructor-status">Not logged in</span>
+            </div>
+            <div class="input-group">
+                <input type="text" id="instructor-message" placeholder="Type your message..." onkeypress="handleKeyPress(event, 'instructor')">
+                <button onclick="sendMessage('instructor')">Send</button>
+            </div>
+        </div>
+
+        <!-- Student Section -->
+        <div class="user-section">
+            <h3>👨‍🎓 Student Panel</h3>
+            <div class="input-group">
+                <button onclick="authenticateStudent()">Login as Student</button>
+                <span id="student-status">Not logged in</span>
+            </div>
+            <div class="input-group">
+                <input type="text" id="student-message" placeholder="Type your message..." onkeypress="handleKeyPress(event, 'student')">
+                <button onclick="sendMessage('student')">Send</button>
+            </div>
+        </div>
+
+        <!-- Chat Display -->
+        <div class="chat-box" id="chat-box">
+            <div class="message">
+                <strong>System:</strong> Chat test page loaded. Please authenticate users to start chatting.
+            </div>
+        </div>
+
+        <div id="typing-indicator" class="typing"></div>
+
+        <!-- Controls -->
+        <div class="input-group">
+            <button onclick="clearChat()">Clear Chat</button>
+            <button onclick="joinRoom()">Join Chat Room</button>
+            <button onclick="markAsRead()">Mark as Read</button>
+        </div>
+    </div>
+
+    <script>
+        // Socket.io connection
+        const socket = io('http://localhost:5000');
+        
+        // Test data
+        const INSTRUCTOR_DATA = {
+            phone: '+84764950492',
+            userType: 'instructor',
+            name: 'Test Instructor'
+        };
+        
+        const STUDENT_DATA = {
+            phone: '+84987654321',
+            userType: 'student', 
+            name: 'Nguyen Van A'
+        };
+        
+        const ROOM_ID = `chat_${INSTRUCTOR_DATA.phone}_${STUDENT_DATA.phone}`;
+        
+        let instructorLoggedIn = false;
+        let studentLoggedIn = false;
+        let typingTimeout;
+
+        // Connection events
+        socket.on('connect', () => {
+            updateStatus('✅ Connected to server');
+            console.log('🔗 Connected to server:', socket.id);
+        });
+
+        socket.on('disconnect', () => {
+            updateStatus('❌ Disconnected from server');
+            console.log('🔌 Disconnected from server');
+        });
+
+        // Authentication functions
+        function authenticateInstructor() {
+            socket.emit('user-authenticated', INSTRUCTOR_DATA);
+            instructorLoggedIn = true;
+            document.getElementById('instructor-status').textContent = '✅ Logged in';
+            console.log('👨‍🏫 Instructor authenticated');
+        }
+
+        function authenticateStudent() {
+            socket.emit('user-authenticated', STUDENT_DATA);
+            studentLoggedIn = true;
+            document.getElementById('student-status').textContent = '✅ Logged in';
+            console.log('👨‍🎓 Student authenticated');
+        }
+
+        // Join chat room
+        function joinRoom() {
+            socket.emit('join-chat-room', ROOM_ID);
+            addMessage('system', `🏠 Joined room: ${ROOM_ID}`);
+        }
+
+        // Send message
+        function sendMessage(userType) {
+            const messageInput = document.getElementById(`${userType}-message`);
+            const message = messageInput.value.trim();
+            
+            if (!message) return;
+            
+            const userData = userType === 'instructor' ? INSTRUCTOR_DATA : STUDENT_DATA;
+            
+            if (!((userType === 'instructor' && instructorLoggedIn) || (userType === 'student' && studentLoggedIn))) {
+                alert(`Please login as ${userType} first!`);
+                return;
+            }
+
+            const messageData = {
+                roomId: ROOM_ID,
+                from: userData.phone,
+                fromName: userData.name,
+                fromType: userData.userType,
+                message: message,
+                messageType: 'text',
+                tempId: Date.now() // For tracking
+            };
+
+            socket.emit('send-message', messageData);
+            messageInput.value = '';
+            
+            // Stop typing indicator
+            socket.emit('typing-stop', {
+                roomId: ROOM_ID,
+                userName: userData.name,
+                userType: userData.userType
+            });
+        }
+
+        // Handle keyboard events
+        function handleKeyPress(event, userType) {
+            if (event.key === 'Enter') {
+                sendMessage(userType);
+                return;
+            }
+            
+            // Typing indicator
+            const userData = userType === 'instructor' ? INSTRUCTOR_DATA : STUDENT_DATA;
+            
+            socket.emit('typing-start', {
+                roomId: ROOM_ID,
+                userName: userData.name,
+                userType: userData.userType
+            });
+            
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                socket.emit('typing-stop', {
+                    roomId: ROOM_ID,
+                    userName: userData.name,
+                    userType: userData.userType
+                });
+            }, 1000);
+        }
+
+        // Message events
+        socket.on('receive-message', (messageData) => {
+            console.log('💬 Message received:', messageData);
+            addMessage(messageData.fromType, `${messageData.fromName}: ${messageData.message}`, messageData.timestamp);
+        });
+
+        socket.on('message-sent', (confirmationData) => {
+            console.log('✅ Message sent confirmation:', confirmationData);
+        });
+
+        socket.on('message-error', (errorData) => {
+            console.error('❌ Message error:', errorData);
+            addMessage('error', `Error: ${errorData.error}`);
+        });
+
+        // Typing events
+        socket.on('user-typing', (data) => {
+            const indicator = document.getElementById('typing-indicator');
+            if (data.isTyping) {
+                indicator.textContent = `${data.userName} is typing...`;
+            } else {
+                indicator.textContent = '';
+            }
+        });
+
+        // User presence events
+        socket.on('user-online', (userData) => {
+            addMessage('system', `🟢 ${userData.name} (${userData.userType}) is online`);
+        });
+
+        socket.on('user-offline', (userData) => {
+            addMessage('system', `🔴 ${userData.name} (${userData.userType}) went offline`);
+        });
+
+        socket.on('user-joined-chat', (userData) => {
+            addMessage('system', `👋 ${userData.userName} joined the chat`);
+        });
+
+        // Utility functions
+        function addMessage(type, message, timestamp = null) {
+            const chatBox = document.getElementById('chat-box');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            const time = timestamp ? new Date(timestamp.seconds * 1000).toLocaleTimeString() : new Date().toLocaleTimeString();
+            messageDiv.innerHTML = `<small>${time}</small><br>${message}`;
+            
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function updateStatus(message) {
+            document.getElementById('connection-status').textContent = message;
+        }
+
+        function clearChat() {
+            document.getElementById('chat-box').innerHTML = '';
+            addMessage('system', 'Chat cleared');
+        }
+
+        function markAsRead() {
+            // This would typically be called when user views messages
+            console.log('📖 Marking messages as read...');
+            addMessage('system', '👁️ Messages marked as read');
+        }
+
+        // Auto-join room on page load
+        setTimeout(() => {
+            joinRoom();
+        }, 1000);
+    </script>
+</body>
+</html>

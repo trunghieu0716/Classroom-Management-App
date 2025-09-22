@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + React</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // Inline debug script to avoid 404 issues
+      (function() {
+        // Store original fetch function
+        const originalFetch = window.fetch;
+        
+        // Override fetch with interceptor
+        window.fetch = async function(input, init) {
+          const url = typeof input === 'string' ? input : input.url;
+          const method = init?.method || 'GET';
+          
+          console.log(`🔍 DEBUG: Fetch request: ${method} ${url}`);
+          if (init?.body) {
+            try {
+              const body = JSON.parse(init.body);
+              console.log('📦 DEBUG: Request payload:', body);
+            } catch {
+              console.log('📦 DEBUG: Request payload:', init.body);
+            }
+          }
+          
+          try {
+            const response = await originalFetch(input, init);
+            const clonedResponse = response.clone();
+            
+            try {
+              const data = await clonedResponse.json();
+              console.log(`✅ DEBUG: Response (${response.status}):`, data);
+            } catch {
+              console.log(`✅ DEBUG: Response (${response.status}): [Not JSON]`);
+            }
+            
+            return response;
+          } catch (error) {
+            console.log('❌ DEBUG: Fetch error:', error);
+            throw error;
+          }
+        };
+        
+        console.log('🔧 DEBUG: Network request interceptor initialized');
+      })();
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
