@@ -81,3 +81,20 @@ TWILIO_PHONE=+123456789
    EMAIL_PASS=etwt xxx
 
 📸 Screenshots
+Role (Instructor and Student)
+![alt text](<image/Screenshot 2025-09-22 173525.png>)
+
+Sign in Instructor (use development OTP)
+![alt text](image.png)
+
+Instructor screen
+![alt text](<image/Screenshot 2025-09-22 173007.png>)
+
+Student screen
+![alt text](<image/Screenshot 2025-09-22 173251.png>)
+
+OTP email
+![alt text](<image/Screenshot 2025-09-22 173229.png>)
+
+Messages
+![alt text](<image/Screenshot 2025-09-22 173810.png>)
