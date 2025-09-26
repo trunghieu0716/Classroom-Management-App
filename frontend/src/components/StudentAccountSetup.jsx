@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { studentAuthAPI } from '../services/api';
-import '../styles/Auth.css';
+
 
 const StudentAccountSetup = ({ setupToken, onComplete }) => {
   const [formData, setFormData] = useState({

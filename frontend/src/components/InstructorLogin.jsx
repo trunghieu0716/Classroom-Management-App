@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import OTPDisplay from './OTPDisplay';
-import '../styles/Auth.css';
+
 
 const InstructorLogin = ({ onAuthenticated, onBack }) => {
   const [step, setStep] = useState('phone'); // 'phone' or 'verification'

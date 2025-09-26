@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import StudentAccountSetup from './StudentAccountSetup';
-import '../styles/Auth.css';
+
 
 const StudentSetupPage = () => {
   const [loading, setLoading] = useState(true);

@@ -47,7 +47,7 @@ const OTPHelper = ({ isVisible, onClose, onOTPSelect }) => {
       <div className="modal-dialog modal-dialog-centered">
         <div className="modal-content">
           <div className="modal-header">
-            <h5 className="modal-title">🛠️ Development Helper</h5>
+            <h5 className="modal-title">Development Helper</h5>
             <button 
               type="button" 
               className="btn-close" 
@@ -56,7 +56,7 @@ const OTPHelper = ({ isVisible, onClose, onOTPSelect }) => {
           </div>
           <div className="modal-body">
             <div className="alert alert-info">
-              <h6>📱 Mock SMS Active</h6>
+              <h6>Mock SMS Active</h6>
               <p>SMS service is in development mode. Check the methods below to get your OTP:</p>
             </div>
             
@@ -71,7 +71,7 @@ const OTPHelper = ({ isVisible, onClose, onOTPSelect }) => {
                       className="btn btn-outline-primary btn-sm"
                       onClick={() => window.open('', '_blank')}
                     >
-                      📖 How to open console
+                      How to open console
                     </button>
                   </div>
                 </div>
@@ -84,10 +84,10 @@ const OTPHelper = ({ isVisible, onClose, onOTPSelect }) => {
                     <h6 className="card-title">Method 2: Backend Console</h6>
                     <p className="small text-muted">Check your backend terminal/console for the OTP code</p>
                     <div className="bg-dark text-light p-2 rounded small font-monospace">
-                      📱 MOCK SMS SENT:<br />
+                      MOCK SMS SENT:<br />
                       To: +84932583717<br />
-                      🔑 OTP Code: <span className="text-warning">123456</span><br />
-                      ⏰ Expires in: 5 minutes
+                      OTP Code: <span className="text-warning">123456</span><br />
+                      Expires in: 5 minutes
                     </div>
                   </div>
                 </div>
@@ -106,7 +106,7 @@ const OTPHelper = ({ isVisible, onClose, onOTPSelect }) => {
                           className="btn btn-outline-warning btn-sm"
                           onClick={() => handleUseOTP(code)}
                         >
-                          ✅ Use {code}
+                          Use {code}
                         </button>
                       ))}
                     </div>
@@ -125,7 +125,7 @@ const OTPHelper = ({ isVisible, onClose, onOTPSelect }) => {
                       className="btn btn-success btn-sm"
                       onClick={() => handleUseOTP(otpCode)}
                     >
-                      ✅ Use Code
+                      Use Code
                     </button>
                     <button 
                       className="btn btn-outline-success btn-sm"
@@ -134,7 +134,7 @@ const OTPHelper = ({ isVisible, onClose, onOTPSelect }) => {
                         alert('OTP copied to clipboard!');
                       }}
                     >
-                      📋 Copy
+                      Copy
                     </button>
                   </div>
                 </div>
@@ -154,7 +154,7 @@ const OTPHelper = ({ isVisible, onClose, onOTPSelect }) => {
                   Checking...
                 </>
               ) : (
-                '🔍 Auto-detect OTP'
+                'Auto-detect OTP'
               )}
             </button>
             <button 

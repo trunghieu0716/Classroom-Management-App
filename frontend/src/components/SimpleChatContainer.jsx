@@ -98,34 +98,51 @@ const SimpleChatContainer = ({ userType }) => {
         // Chuẩn hóa ID theo cùng cách như khi gửi tin nhắn
         let currentUserId;
         if (actualUserType === 'instructor') {
-          currentUserId = user?.phone || user?.phoneNumber || user?.id;
+          const rawId = user?.phone || user?.phoneNumber || user?.id;
+          currentUserId = rawId?.startsWith('0') ? `+84${rawId.slice(1)}` : rawId;
         } else {
           currentUserId = user?.email || user?.id;
         }
         
         let chatUserId;
         if (selectedChat.userType === 'instructor') {
-          chatUserId = selectedChat?.phone || selectedChat?.id;
+          const rawChatId = selectedChat?.phone || selectedChat?.id;
+          chatUserId = rawChatId?.startsWith('0') ? `+84${rawChatId.slice(1)}` : rawChatId;
         } else {
           chatUserId = selectedChat?.email || selectedChat?.id;
         }
         
         // Kiểm tra xem tin nhắn có phải dành cho cuộc trò chuyện hiện tại không
-        const isMessageForCurrentChat = 
-          // 1. Người gửi là người đang chat với mình
-          messageData.from === chatUserId ||
-          // 2. Tin nhắn đến từ chính mình
-          messageData.from === currentUserId ||
-          // 3. Tin nhắn chỉ định rõ người nhận là người đang chat với mình
-          messageData.to === chatUserId ||
-          // 4. Tin nhắn chỉ định rõ người nhận là chính mình
-          messageData.to === currentUserId;
+        let isMessageForCurrentChat = false;
         
-        console.log('Message for current chat?', isMessageForCurrentChat, {
+        // Log chi tiết để debug
+        console.log('Message filtering details:', {
           messageFrom: messageData.from,
           messageTo: messageData.to,
-          currentUserId,
-          chatUserId
+          currentUserId: currentUserId,
+          chatUserId: chatUserId,
+          fromName: messageData.fromName
+        });
+        
+        // Kiểm tra nới lỏng hơn: chỉ cần tin nhắn liên quan đến người dùng hiện tại và người chat đã chọn
+        isMessageForCurrentChat = (
+          // Người dùng hiện tại là người gửi hoặc người nhận
+          ((messageData.from === currentUserId || messageData.to === currentUserId)) &&
+          // Người chat đã chọn là người gửi hoặc người nhận
+          ((messageData.from === chatUserId || messageData.to === chatUserId))
+        );
+        
+        // Ghi log chi tiết để debug
+        console.log('Message filtering details (UPDATED):', {
+          messageFrom: messageData.from,
+          messageTo: messageData.to,
+          currentUserId: currentUserId,
+          chatUserId: chatUserId,
+          fromName: messageData.fromName,
+          fromType: messageData.fromType,
+          toName: messageData.toName, 
+          toType: messageData.toType,
+          isForCurrentChat: isMessageForCurrentChat
         });
         
         if (isMessageForCurrentChat) {
@@ -151,13 +168,26 @@ const SimpleChatContainer = ({ userType }) => {
             // Ensure timestamp is valid by explicitly handling it
             let timestamp;
             try {
-              timestamp = new Date(messageData.timestamp);
+              // Kiểm tra định dạng timestamp chuẩn ISO
+              if (typeof messageData.timestamp === 'string' && messageData.timestamp.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)) {
+                timestamp = new Date(messageData.timestamp);
+              } 
+              // Kiểm tra xem có phải timestamp là số (milliseconds) không
+              else if (!isNaN(Number(messageData.timestamp))) {
+                timestamp = new Date(Number(messageData.timestamp));
+              }
+              // Trường hợp khác, thử chuyển đổi trực tiếp
+              else {
+                timestamp = new Date(messageData.timestamp);
+              }
+              
+              // Kiểm tra lại tính hợp lệ của timestamp
               if (isNaN(timestamp.getTime())) {
-                console.warn('Invalid timestamp in message, using current time');
+                console.warn('Invalid timestamp in message, using current time:', messageData.timestamp);
                 timestamp = new Date();
               }
             } catch (error) {
-              console.error('Error parsing timestamp:', error);
+              console.error('Error parsing timestamp:', error, messageData.timestamp);
               timestamp = new Date();
             }
             
@@ -252,6 +282,9 @@ const SimpleChatContainer = ({ userType }) => {
       socket.off('message-error');
       socket.off('disconnect');
       socket.off('reconnect');
+      
+      // Ghi log để debug
+      console.log('🧹 Cleaned up socket event listeners');
     };
   }, [socket, user, actualUserType, selectedChat]);
     
@@ -380,6 +413,8 @@ const SimpleChatContainer = ({ userType }) => {
     if (actualUserType === 'instructor') {
       // Instructor luôn dùng phone làm ID
       currentUserId = user?.phone || user?.phoneNumber || user?.id;
+      const rawId = user?.phone || user?.phoneNumber || user?.id;
+      currentUserId = rawId?.startsWith('0') ? `+84${rawId.slice(1)}` : rawId;
     } else {
       // Student luôn dùng email làm ID
       currentUserId = user?.email || user?.id;
@@ -390,6 +425,8 @@ const SimpleChatContainer = ({ userType }) => {
     if (chatUser.userType === 'instructor') {
       // Instructor luôn dùng phone làm ID
       chatUserId = chatUser?.phone || chatUser?.id;
+      const rawChatId = chatUser?.phone || chatUser?.id;
+      chatUserId = rawChatId?.startsWith('0') ? `+84${rawChatId.slice(1)}` : rawChatId;
     } else {
       // Student luôn dùng email làm ID
       chatUserId = chatUser?.email || chatUser?.id;
@@ -408,15 +445,28 @@ const SimpleChatContainer = ({ userType }) => {
     const roomId = `chat_${participants[0]}_${participants[1]}`;
     console.log('Generated room ID:', roomId);
     
-    // Join the chat room
-    if (socket) {
-      console.log('Joining chat room:', roomId);
+  // Tham gia vào phòng chat với ID được chuẩn hóa
+  if (socket) {
+    // Tạo ID phòng chuẩn hóa
+    const participants = [chatUserId, currentUserId].sort();
+    const standardRoomId = `chat_${participants[0]}_${participants[1]}`;
+    
+    console.log('Joining standardized chat room:', standardRoomId);
+    socket.emit('join-chat-room', standardRoomId);
+    
+    // Vẫn giữ phòng gốc để tương thích
+    if (roomId !== standardRoomId) {
+      console.log('Also joining original room for compatibility:', roomId);
       socket.emit('join-chat-room', roomId);
-    } else {
-      console.error('Socket not connected, cannot join room');
     }
     
-    try {
+    // Đảm bảo đã tham gia vào phòng cá nhân của người dùng hiện tại
+    const userPersonalRoom = `user_${currentUserId}`;
+    console.log('Joining personal user room:', userPersonalRoom);
+    socket.emit('join-chat-room', userPersonalRoom);
+  } else {
+    console.error('Socket not connected, cannot join room');
+  }    try {
       // Fetch chat history from the API
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
       // Chat history may still need authentication
@@ -425,20 +475,34 @@ const SimpleChatContainer = ({ userType }) => {
         headers['Authorization'] = `Bearer ${token}`;
       }
       
-      console.log(`Fetching chat history from: ${apiUrl}/api/chat/messages/${roomId}`);
-      const response = await fetch(`${apiUrl}/api/chat/messages/${roomId}`, { headers });
+      // Thêm thông tin người dùng hiện tại và người đang chat để lọc tin nhắn đúng
+      const chatHistoryUrl = `${apiUrl}/api/chat/messages/${roomId}?currentUser=${encodeURIComponent(currentUserId)}&chatUser=${encodeURIComponent(chatUserId)}`;
+      console.log(`Fetching chat history from: ${chatHistoryUrl}`);
+      const response = await fetch(chatHistoryUrl, { headers });
       const data = await response.json();
       
       if (data.success && data.messages && data.messages.length > 0) {
-        // Format messages for display
-        const formattedMessages = data.messages.map(msg => ({
-          id: msg.id,
-          sender: msg.fromName,
-          senderType: msg.fromType,
-          content: msg.message,
-          timestamp: new Date(msg.timestamp),
-          isOwn: msg.from === (user.id || user.email || user.phone)
-        }));
+        // Format messages for display và lọc để chỉ hiển thị tin nhắn giữa hai người dùng hiện tại
+        const formattedMessages = data.messages
+          .filter(msg => {
+            // Chỉ giữ tin nhắn giữa người dùng hiện tại và người chat được chọn
+            return (
+              (msg.from === currentUserId && msg.to === chatUserId) || 
+              (msg.from === chatUserId && msg.to === currentUserId)
+            );
+          })
+          .map(msg => ({
+            id: msg.id,
+            sender: msg.fromName,
+            senderType: msg.fromType,
+            content: msg.message,
+            timestamp: new Date(msg.timestamp),
+            isOwn: msg.from === (user.id || user.email || user.phone),
+            from: msg.from,
+            to: msg.to
+          }));
+          
+        console.log(`Filtered ${data.messages.length} messages to ${formattedMessages.length} relevant messages`);
         setMessages(formattedMessages);
       } else {
         // No messages yet, show welcome message
@@ -475,6 +539,8 @@ const SimpleChatContainer = ({ userType }) => {
     if (actualUserType === 'instructor') {
       // Instructor luôn dùng phone làm ID
       userId = user?.phone || user?.phoneNumber || user?.id;
+      const rawId = user?.phone || user?.phoneNumber || user?.id;
+      userId = rawId?.startsWith('0') ? `+84${rawId.slice(1)}` : rawId;
     } else {
       // Student luôn dùng email làm ID
       userId = user?.email || user?.id;
@@ -491,6 +557,8 @@ const SimpleChatContainer = ({ userType }) => {
     if (selectedChat.userType === 'instructor') {
       // Instructor luôn dùng phone làm ID
       chatUserId = selectedChat?.phone || selectedChat?.id;
+      const rawChatId = selectedChat?.phone || selectedChat?.id;
+      chatUserId = rawChatId?.startsWith('0') ? `+84${rawChatId.slice(1)}` : rawChatId;
     } else {
       // Student luôn dùng email làm ID
       chatUserId = selectedChat?.email || selectedChat?.id;
@@ -551,17 +619,49 @@ const SimpleChatContainer = ({ userType }) => {
     setMessage('');
   };
   
+  // Debug function to log the internal properties of an object
+  const debugObject = (obj, label = 'Object') => {
+    console.log(`Debug ${label}:`, {
+      type: typeof obj,
+      value: obj,
+      keys: obj ? Object.keys(obj) : null,
+      isDate: obj instanceof Date,
+      toString: obj ? obj.toString() : null
+    });
+  };
+  
   // Format timestamp for display
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
     
+    debugObject(timestamp, 'Timestamp');
+    
     try {
       // Ensure timestamp is properly converted to a Date object
-      const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
+      let date;
+      
+      if (timestamp instanceof Date) {
+        date = timestamp;
+      } else if (typeof timestamp === 'string' && timestamp.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)) {
+        // Chuẩn ISO string
+        date = new Date(timestamp);
+      } else if (!isNaN(Number(timestamp))) {
+        // Unix timestamp (milliseconds)
+        date = new Date(Number(timestamp));
+      } else if (timestamp && timestamp._seconds) {
+        // Firestore timestamp
+        date = new Date(timestamp._seconds * 1000);
+      } else if (timestamp && timestamp.seconds) {
+        // Firestore timestamp format
+        date = new Date(timestamp.seconds * 1000);
+      } else {
+        // Trường hợp khác
+        date = new Date(timestamp);
+      }
       
       // Check if date is valid
       if (isNaN(date.getTime())) {
-        console.warn('Invalid date:', timestamp);
+        console.warn('Invalid date format:', timestamp);
         // Return current time as fallback
         return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       }
@@ -649,7 +749,10 @@ const SimpleChatContainer = ({ userType }) => {
             {/* Messages */}
             <div className="p-3 flex-grow-1 overflow-auto bg-light">
               {messages.map(msg => (
-                <div key={msg.id} className={`mb-3 d-flex ${msg.isOwn ? 'justify-content-end' : msg.isSystem ? 'justify-content-center' : ''}`}>
+                <div 
+                  key={`${msg.id}-${typeof msg.timestamp === 'object' ? msg.timestamp.getTime() : msg.timestamp}`} 
+                  className={`mb-3 d-flex ${msg.isOwn ? 'justify-content-end' : msg.isSystem ? 'justify-content-center' : ''}`}
+                >
                   {msg.isSystem ? (
                     <div className="text-center text-muted small py-2 px-3 bg-white rounded">
                       {msg.content}

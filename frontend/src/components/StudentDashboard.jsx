@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/useAuth';
 import { studentAPI } from '../services/api';
-import SimpleChatContainer from './SimpleChatContainer';
+import SimpleChat from './SimpleChat';
 
 const StudentDashboard = ({ user }) => {
   const { token, logout, setError } = useAuth();
@@ -172,7 +172,7 @@ const StudentDashboard = ({ user }) => {
               <ProfileEdit profile={profile} setProfile={setProfile} setError={setError} />
             )}
             {activeTab === 'messages' && (
-              <SimpleChatContainer userType="student" />
+              <SimpleChat userType="student" />
             )}
           </div>
         </div>

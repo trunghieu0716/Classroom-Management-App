@@ -39,21 +39,72 @@ const getChatHistory = async (req, res) => {
         
         console.log(`📊 Filtering messages for users: ${userA} and ${userB}`);
         
-        // Lấy tin nhắn giữa hai người dùng cụ thể
+        // Lấy tin nhắn giữa hai người dùng cụ thể bằng lọc tại client nhiệm vụ
         if (userA && userB) {
+            console.log(`🔍 Getting messages between users ${userA} and ${userB}`);
+            
             try {
-                // Lấy tin nhắn mà người gửi và người nhận đều phải là các user được chỉ định
-                messagesSnapshot = await db.collection("chatMessages")
-                    .where("from", "in", [userA, userB])
-                    .where("to", "in", [userA, userB])
+                // Sử dụng room ID được tạo từ ID hai người dùng (đã sắp xếp theo bảng chữ cái)
+                const participants = [userA, userB].sort();
+                const roomId = `chat_${participants[0]}_${participants[1]}`;
+                console.log(`🔍 Using normalized room ID: ${roomId}`);
+                
+                // Thử lấy tin nhắn theo roomId
+                const roomMessages = await db.collection("chatMessages")
+                    .where("roomId", "==", roomId)
                     .orderBy("timestamp", "desc")
                     .limit(parseInt(limit))
                     .get();
                     
-                console.log(`📊 Retrieved ${messagesSnapshot.size} messages between specific users`);
+                if (!roomMessages.empty) {
+                    console.log(`📊 Found ${roomMessages.size} messages using roomId ${roomId}`);
+                    messagesSnapshot = roomMessages;
+                } else {
+                    // Fallback: lọc theo người gửi và người nhận
+                    const recentSnapshot = await db.collection("chatMessages")
+                        .orderBy("timestamp", "desc")
+                        .limit(parseInt(limit) * 5)
+                        .get();
+                        
+                    const filtered = [];
+                    recentSnapshot.forEach(doc => {
+                        const d = doc.data();
+                        if ((d.from === userA && d.to === userB) || (d.from === userB && d.to === userA)) {
+                            filtered.push(doc);
+                        }
+                    });
+                    // Limit to requested count
+                    const limited = filtered.slice(0, parseInt(limit));
+                    messagesSnapshot = {
+                        empty: limited.length === 0,
+                        size: limited.length,
+                        forEach: callback => limited.forEach(callback)
+                    };
+                    console.log(`📊 In-memory filtered ${messagesSnapshot.size} messages between users ${userA} and ${userB}`);
+                }
             } catch (error) {
-                console.log(`Error querying specific users: ${error.message}`);
-                messagesSnapshot = { empty: true };
+                console.error(`❌ Error getting chat messages: ${error.message}`);
+                // Fallback to old method if error occurs
+                const recentSnapshot = await db.collection("chatMessages")
+                    .orderBy("timestamp", "desc")
+                    .limit(parseInt(limit) * 5)
+                    .get();
+                    
+                const filtered = [];
+                recentSnapshot.forEach(doc => {
+                    const d = doc.data();
+                    if ((d.from === userA && d.to === userB) || (d.from === userB && d.to === userA)) {
+                        filtered.push(doc);
+                    }
+                });
+                // Limit to requested count
+                const limited = filtered.slice(0, parseInt(limit));
+                messagesSnapshot = {
+                    empty: limited.length === 0,
+                    size: limited.length,
+                    forEach: callback => limited.forEach(callback)
+                };
+                console.log(`📊 Fallback: In-memory filtered ${messagesSnapshot.size} messages between users ${userA} and ${userB}`);
             }
         }
         
@@ -124,16 +175,32 @@ const getChatHistory = async (req, res) => {
         const messages = [];
         messagesSnapshot.forEach(doc => {
             const messageData = doc.data();
+            
+            // Chuyển đổi timestamp sang dạng ISO string nếu là timestamp
+            let timestamp;
+            if (messageData.timestamp instanceof Date) {
+                timestamp = messageData.timestamp.toISOString();
+            } else if (messageData.timestamp && messageData.timestamp.seconds) {
+                // Firestore timestamp
+                timestamp = new Date(messageData.timestamp.seconds * 1000).toISOString();
+            } else {
+                timestamp = new Date().toISOString(); // Fallback
+            }
+            
+            // Đảm bảo các thông tin cần thiết cho chat
             messages.push({
                 id: doc.id,
                 from: messageData.from,
-                fromName: messageData.fromName,
-                fromType: messageData.fromType,
+                fromName: messageData.fromName || "Unknown",
+                fromType: messageData.fromType || "unknown",
                 message: messageData.message,
-                timestamp: messageData.timestamp,
+                timestamp: timestamp,
                 read: messageData.read || false,
                 messageType: messageData.messageType || 'text',
-                to: messageData.to || null // Thêm thông tin người nhận (nếu có)
+                to: messageData.to || null, // Thêm thông tin người nhận
+                toName: messageData.toName || "Unknown", // Thêm tên người nhận
+                toType: messageData.toType || "unknown", // Thêm loại người nhận
+                roomId: messageData.roomId || roomId // Đảm bảo có thông tin roomId
             });
         });
 
@@ -187,16 +254,32 @@ const sendMessage = async (req, res) => {
             to // Thêm thông tin người nhận cụ thể
         };
 
-        // Save to Firebase
+        // Tạo room ID chuẩn cho kênh chat giữa hai người dùng
+        let standardizedRoomId = roomId;
+        if (from && to) {
+            const participants = [from, to].sort();
+            standardizedRoomId = `chat_${participants[0]}_${participants[1]}`;
+            console.log(`📝 Using standardized room ID: ${standardizedRoomId}`);
+        }
+        
+        // Thêm roomId vào tin nhắn
+        messageData.roomId = standardizedRoomId;
+        
+        // Lưu vào cả kho lưu trữ mới (collection dành riêng cho tin nhắn)
+        const chatMessageRef = await db.collection("chatMessages").add(messageData);
+        console.log(`✅ Message saved to chatMessages with ID: ${chatMessageRef.id}`);
+        
+        // Vẫn lưu vào cấu trúc cũ để đảm bảo tương thích
         const messageRef = await db.collection("chatRooms")
-            .doc(roomId)
+            .doc(standardizedRoomId)
             .collection("messages")
             .add(messageData);
 
         // Update room metadata
-        await db.collection("chatRooms").doc(roomId).set({
+        await db.collection("chatRooms").doc(standardizedRoomId).set({
             lastMessage: message.trim(),
             lastMessageFrom: fromName,
+            participants: [from, to].filter(Boolean), // Lưu cả người gửi và người nhận
             lastMessageAt: new Date(),
             updatedAt: new Date()
         }, { merge: true });

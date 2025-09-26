@@ -28,7 +28,7 @@ const formatPhoneNumber = (phoneNumber) => {
  */
 const setupInitialUsers = async () => {
     try {
-        console.log("🚀 Setting up initial users...");
+        console.log("Setting up initial users...");
 
         const initialUsers = [
             {
@@ -85,16 +85,16 @@ const setupInitialUsers = async () => {
             console.log(`✅ Created ${user.userType}: ${formattedPhone} (${user.name})`);
         }
 
-        console.log("🎉 Initial users setup completed!");
+        console.log("Initial users setup completed!");
         
     } catch (error) {
-        console.error("❌ Error setting up users:", error);
+        console.error("Error setting up users:", error);
     }
 };
 
 // Run setup
 setupInitialUsers().then(() => {
-    console.log("✅ Setup completed, you can now start the server");
+    console.log("Setup completed, you can now start the server");
     process.exit(0);
 }).catch((error) => {
     console.error("Setup failed:", error);

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import OTPDisplay from './OTPDisplay';
 import { studentAuthAPI } from '../services/api';
-import '../styles/Auth.css';
 
 const StudentLogin = ({ onAuthenticated, onBack, initialEmail = '', setupCompleted = false }) => {
   const [step, setStep] = useState('email'); // 'email' or 'verification'
@@ -131,19 +130,19 @@ const StudentLogin = ({ onAuthenticated, onBack, initialEmail = '', setupComplet
     
     // Make sure email is set correctly first - separate this from the submission logic
     if (initialEmail && initialEmail !== email) {
-      console.log('📧 Setting email from props:', initialEmail);
+      console.log('Setting email from props:', initialEmail);
       setEmail(initialEmail);
     }
     
     // Now handle auto-submission with proper conditions
     if (initialEmail && setupCompleted && step === 'email' && !hasAutoSubmitted.current) {
-      console.log('🔄 Auto-submitting email from account setup:', initialEmail);
+      console.log('Auto-submitting email from account setup:', initialEmail);
       hasAutoSubmitted.current = true; // Mark as run to prevent multiple executions
       
       // Only trigger this once when component mounts, with a longer delay
       const timer = setTimeout(() => {
         if (isMounted.current) {
-          console.log('🚀 Auto-submitting login form for:', initialEmail);
+          console.log('Auto-submitting login form for:', initialEmail);
           // Create a synthetic event for preventDefault
           const syntheticEvent = { preventDefault: () => {} };
           handleEmailSubmit(syntheticEvent);
@@ -204,7 +203,7 @@ const StudentLogin = ({ onAuthenticated, onBack, initialEmail = '', setupComplet
         // Call onAuthenticated immediately to avoid timing issues
         if (onAuthenticated) {
           // Log the authentication process
-          console.log('🔐 Authentication successful, transitioning to dashboard...');
+          console.log('Authentication successful, transitioning to dashboard...');
           
           // Call onAuthenticated function with proper structure immediately
           onAuthenticated({
@@ -216,7 +215,7 @@ const StudentLogin = ({ onAuthenticated, onBack, initialEmail = '', setupComplet
         // Force navigation to dashboard as a fallback
         setTimeout(() => {
           if (isMounted.current) {
-            console.log('⏱️ Timeout reached - forcing navigation to dashboard');
+            console.log('Timeout reached - forcing navigation to dashboard');
             
             // Force state update in context if available
             if (onAuthenticated) {

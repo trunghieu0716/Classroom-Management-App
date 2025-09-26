@@ -72,374 +72,228 @@ app.get("/", (req, res) => {
 // Socket.io for real-time chat and features
 const { db } = require("./config/firebaseAdmin");
 
-// Store connected users
-const connectedUsers = new Map();
+// Keep track of connected users with their ID and socket ID
+const connectedUsers = new Map(); // Maps userId to socket ID
+const userSockets = new Map(); // Maps socket ID to userId
 
 io.on("connection", (socket) => {
   console.log("⚡ New client connected:", socket.id);
 
-  // Handle user authentication and join their rooms
+  // Handle user authentication when they log in
   socket.on("user-authenticated", async (userData) => {
     try {
-      socket.userData = userData;
       const { phone, userType, name } = userData;
       
-      // Store user connection
-      connectedUsers.set(socket.id, { phone, userType, name });
+      if (!phone) {
+        console.error("❌ User authentication failed: No phone/ID provided");
+        return;
+      }
+
+      // Store user data in socket for easy access
+      socket.userData = userData;
+      
+      // Map user ID to socket ID for direct messaging
+      connectedUsers.set(phone, socket.id);
+      userSockets.set(socket.id, phone);
       
       console.log(`👤 User authenticated: ${name} (${userType}) - ${phone}`);
 
-      // Join user-specific room
-      socket.join(`user_${phone}`);
-
-      // PHƯƠNG ÁN ĐƠN GIẢN HÓA:
-      // Chỉ có 1 giáo viên và các học viên cùng chung phòng chat
-      
-      if (userType === 'instructor') {
-        // Giáo viên tham gia phòng chat chung
-        socket.join(INSTRUCTOR_ROOM);
-        console.log(`🏠 Instructor joined main room: ${INSTRUCTOR_ROOM}`);
-        
-        // Giáo viên cũng tham gia các phòng chat của từng học viên
-        const studentsSnapshot = await db.collection("students").get();
-        console.log(`Found ${studentsSnapshot.size} students for instructor`);
-        
-        studentsSnapshot.forEach(doc => {
-          const studentData = doc.data();
-          // Ưu tiên dùng email cho học viên
-          const studentId = studentData.email || studentData.phone;
-          
-          if (!studentId) {
-            console.log(`⚠️ Student ${doc.id} has no ID (email/phone)`);
-            return;
-          }
-          
-          // Tham gia phòng chat riêng của học viên
-          const studentRoom = getStudentRoomId(studentId);
-          socket.join(studentRoom);
-          console.log(`🏠 Instructor joined student room: ${studentRoom}`);
-        });
-        
-        // Cho phép nhận tin nhắn từ các định dạng phòng cũ (để tương thích)
-        socket.join(`chat_${INSTRUCTOR_ID}_*`);
-        
-      } else if (userType === 'student') {
-        // Học viên tham gia phòng chat chung với giáo viên
-        socket.join(INSTRUCTOR_ROOM);
-        console.log(`🏠 Student joined main room: ${INSTRUCTOR_ROOM}`);
-        
-        // Học viên cũng tham gia phòng chat riêng của mình
-        const studentId = phone; // phone chính là ID học viên (có thể là email)
-        const studentRoom = getStudentRoomId(studentId);
-        socket.join(studentRoom);
-        console.log(`🏠 Student joined personal room: ${studentRoom}`);
-        
-        // Cho phép nhận tin nhắn từ các định dạng phòng cũ (để tương thích)
-        const compatRoomId = `chat_instructor1_${studentId}`;
-        socket.join(compatRoomId);
-        console.log(`🏠 Student also joined compatibility room: ${compatRoomId}`);
-      }
-
-      // Notify user is online
+      // Broadcast user's online status to everyone
       socket.broadcast.emit('user-online', {
-        phone,
+        id: phone,
         userType,
         name
       });
+
+      // Send the user the current online users
+      const onlineUsers = [];
+      connectedUsers.forEach((socketId, userId) => {
+        const userSocket = io.sockets.sockets.get(socketId);
+        if (userSocket && userSocket.userData && userId !== phone) {
+          onlineUsers.push({
+            id: userId,
+            userType: userSocket.userData.userType,
+            name: userSocket.userData.name
+          });
+        }
+      });
+      
+      socket.emit('online-users', onlineUsers);
 
     } catch (error) {
       console.error("❌ Error in user authentication:", error);
     }
   });
 
-  // Handle joining specific chat room
-  socket.on("join-chat-room", async (roomId) => {
-    // PHƯƠNG ÁN ĐƠN GIẢN HÓA:
-    // Đơn giản hóa việc tham gia phòng chat
-    
-    // Xác định loại người dùng và ID
-    const userType = socket.userData?.userType;
-    const userId = socket.userData?.phone || socket.userData?.email;
-    
-    let standardRoomId;
-    
-    if (userType === 'instructor') {
-      // Giáo viên luôn tham gia phòng chính
-      standardRoomId = INSTRUCTOR_ROOM;
-      
-      // Kiểm tra xem giáo viên có đang cố gắng tham gia phòng riêng của học viên nào không
-      if (roomId.includes('_student_') || roomId.includes('instructor1_')) {
-        // Trích xuất ID học viên từ roomId
-        let studentId;
-        if (roomId.includes('_student_')) {
-          studentId = roomId.split('_student_')[1];
-        } else if (roomId.includes('instructor1_')) {
-          studentId = roomId.split('instructor1_')[1];
-        }
-        
-        if (studentId) {
-          // Tham gia phòng riêng của học viên
-          const studentRoom = getStudentRoomId(studentId);
-          socket.join(studentRoom);
-          console.log(`💬 Instructor joining student room: ${studentRoom}`);
-        }
-      }
-    } else if (userType === 'student') {
-      // Học viên luôn tham gia phòng chính
-      standardRoomId = INSTRUCTOR_ROOM;
-      
-      // Học viên cũng tham gia phòng riêng của mình
-      const studentRoom = getStudentRoomId(userId);
-      socket.join(studentRoom);
-      console.log(`� Student joining personal room: ${studentRoom}`);
-    }
-    
-    // Tham gia phòng chính
-    socket.join(standardRoomId);
-    console.log(`💬 User ${socket.id} joined chat room: ${standardRoomId}`);
-    
-    // Log all rooms this socket is in for debugging
-    const rooms = Array.from(socket.rooms);
-    console.log(`🔍 Socket ${socket.id} is now in rooms:`, rooms);
-    
-    // Notify others in the room
-    socket.to(standardRoomId).emit('user-joined-chat', {
-      userId: userId,
-      userName: socket.userData?.name,
-      userType: userType
-    });
-    
-    // Tham gia cả phòng gốc để đảm bảo tương thích
-    socket.join(roomId);
-  });
-
-  // Handle sending messages
+  // Handle direct messaging between users
   socket.on("send-message", async (messageData) => {
     try {
-      const { roomId, from, fromName, fromType, message, messageType = 'text', to = null } = messageData;
+      const { recipientId, message, tempId } = messageData;
       
-      console.log(`💬 Message received: ${fromName} -> Room ${roomId} -> To: ${to || 'all'}`);
-
-      // Validate message data
-      if (!from || !fromName || !fromType || !message) {
+      // Get sender data from socket
+      const sender = socket.userData;
+      
+      if (!sender || !message || !recipientId) {
         socket.emit('message-error', { 
           error: 'Missing required message data',
-          tempId: messageData.tempId // Return the tempId for frontend error handling
+          tempId
         });
         return;
       }
 
-      // PHƯƠNG ÁN CẢI TIẾN:
-      // Xác định phòng chat cần gửi tin nhắn và người nhận cụ thể
-      let targetRoomId;
-      let recipientId = to;
-      
-      if (fromType === 'instructor') {
-        // Nếu là giáo viên gửi, xác định người nhận từ tham số hoặc roomId
-        if (roomId.includes('_student_')) {
-          // Phòng cá nhân của học viên
-          recipientId = to || roomId.split('_student_')[1];
-          targetRoomId = getStudentRoomId(recipientId);
-        } else if (to) {
-          // Có chỉ định người nhận cụ thể
-          targetRoomId = getStudentRoomId(to);
-        } else {
-          // Không xác định được người nhận, sử dụng roomId gốc
-          targetRoomId = roomId;
-        }
-      } else {
-        // Học viên gửi tin nhắn đến phòng riêng của mình và người nhận là instructor
-        targetRoomId = getStudentRoomId(from);
-        recipientId = INSTRUCTOR_ID; // Gửi cho giáo viên
-      }
+      // Create unique chat room ID for these two users (alphabetically sorted)
+      const participants = [sender.phone, recipientId].sort();
+      const chatId = `chat_${participants[0]}_${participants[1]}`;
 
-      // Create message document
-      const messageDoc = {
-        from,
-        fromName,
-        fromType,
+      console.log(`💬 Message from ${sender.name} to ${recipientId}: ${message}`);
+
+      // Prepare message with standard format
+      const newMessage = {
+        senderId: sender.phone,
+        senderName: sender.name,
+        senderType: sender.userType,
+        recipientId: recipientId,
         message: message.trim(),
-        messageType,
+        chatId: chatId,
         timestamp: new Date(),
-        read: false,
-        targetRoomId, // Lưu phòng đích để dễ truy vấn sau này
-        to: recipientId, // Lưu thông tin người nhận cụ thể
-        originalRoomId: roomId // Lưu roomId gốc từ client
+        tempId: tempId || Date.now().toString()
       };
 
-      // Save to Firebase
-      // Lưu vào collection chung cho dễ quản lý
-      const messageRef = await db.collection("chatMessages").add(messageDoc);
-
-      // Cập nhật metadata cho phòng chat
-      await db.collection("chatRooms").doc(targetRoomId).set({
-        lastMessage: message.trim(),
-        lastMessageFrom: fromName,
-        lastMessageAt: new Date(),
-        participants: [from, recipientId].filter(Boolean), // Lưu cả người gửi và người nhận
-        updatedAt: new Date()
-      }, { merge: true });
-
-      const savedMessage = {
-        id: messageRef.id,
-        ...messageDoc
-      };
-
-      // Đảm bảo timestamp được chuyển đổi đúng cách
-      const serializedMessage = {
-        ...savedMessage,
-        timestamp: savedMessage.timestamp.toISOString(),
-        roomId: targetRoomId // Đảm bảo client nhận được roomId đúng
-      };
-      
-      // Debug log: kiểm tra số client trong phòng chat
-      const roomSockets = await io.in(targetRoomId).fetchSockets();
-      console.log(`📢 Broadcasting to ${roomSockets.length} clients in room ${targetRoomId}`);
-      roomSockets.forEach(s => console.log(` - Socket ${s.id} in room`));
-      
-      // Trường hợp 1: Gửi tin nhắn trực tiếp đến socket của người gửi và người nhận
-      if (recipientId) {
-        // Gửi cho người nhận cụ thể (nếu có)
-        if (fromType === 'instructor') {
-          // Gửi tin nhắn đến phòng của học viên
-          const studentRoom = getStudentRoomId(recipientId);
-          io.to(studentRoom).emit('receive-message', {
-            ...serializedMessage,
-            specificRecipient: recipientId
-          });
-          console.log(`📢 Sending to specific student room: ${studentRoom}`);
-        } else {
-          // Nếu người gửi là học viên, gửi đến phòng của giáo viên
-          io.to(`user_${INSTRUCTOR_ID}`).emit('receive-message', {
-            ...serializedMessage,
-            specificRecipient: INSTRUCTOR_ID
-          });
-          console.log(`📢 Sending to instructor's personal room: user_${INSTRUCTOR_ID}`);
+      try {
+        // Save to Firestore for message history
+        const messageRef = await db.collection("messages").add(newMessage);
+        const messageId = messageRef.id;
+        
+        // Update chat room metadata
+        await db.collection("chats").doc(chatId).set({
+          lastMessage: message.trim(),
+          lastMessageFrom: sender.name,
+          lastMessageAt: new Date(),
+          participants: [sender.phone, recipientId],
+          updatedAt: new Date()
+        }, { merge: true });
+        
+        // Prepare message for socket delivery
+        const messageToSend = {
+          ...newMessage,
+          id: messageId,
+          timestamp: newMessage.timestamp.toISOString()
+        };
+        
+        console.log(`✅ Message saved with ID: ${messageId}`);
+        
+        // Find recipient's socket ID to send direct message
+        const recipientSocketId = connectedUsers.get(recipientId);
+        if (recipientSocketId) {
+          // Send directly to recipient if online
+          io.to(recipientSocketId).emit('receive-message', messageToSend);
         }
+        
+        // Always send confirmation back to sender
+        socket.emit('message-sent', {
+          tempId: tempId,
+          messageId: messageId,
+          timestamp: newMessage.timestamp.toISOString()
+        });
+        
+        // Also send the message to the sender for consistency
+        socket.emit('receive-message', messageToSend);
+        
+      } catch (error) {
+        console.error("❌ Error saving message:", error);
+        socket.emit('message-error', {
+          error: 'Failed to save message',
+          tempId: tempId
+        });
       }
-      
-      // Trường hợp 2: Gửi tin nhắn đến phòng gốc để đảm bảo người gửi luôn nhận được
-      io.to(roomId).emit('receive-message', serializedMessage);
-      
-      // Trường hợp 3: Gửi tin nhắn đến phòng đích (nếu khác với phòng gốc)
-      if (roomId !== targetRoomId) {
-        io.to(targetRoomId).emit('receive-message', serializedMessage);
-        console.log(`📢 Also broadcasting to target room: ${targetRoomId}`);
-      }
-      
-      // Tương thích ngược - gửi đến phòng định dạng cũ
-      if (fromType === 'instructor' && recipientId) {
-        const legacyRoomId = `chat_instructor1_${recipientId}`;
-        io.to(legacyRoomId).emit('receive-message', serializedMessage);
-        console.log(`📢 Also broadcasting to legacy room: ${legacyRoomId}`);
-      }
-      
-      // Send delivery confirmation to sender
-      socket.emit('message-sent', {
-        tempId: messageData.tempId, // For frontend message tracking
-        messageId: messageRef.id,
-        roomId: targetRoomId, // Add roomId for consistent tracking
-        timestamp: messageDoc.timestamp.toISOString()
-      });
-
-      console.log(`✅ Message saved and broadcasted: ${messageRef.id} in room ${targetRoomId}`);
 
     } catch (error) {
       console.error("❌ Error handling message:", error);
       socket.emit('message-error', { 
         error: 'Failed to send message',
-        tempId: messageData.tempId, // Return the tempId for frontend error handling
-        details: process.env.NODE_ENV !== 'production' ? error.message : undefined
+        tempId: messageData.tempId
       });
     }
   });
 
-  // Handle typing indicators
-  socket.on("typing-start", (data) => {
-    const { roomId, userName, userType } = data;
-    socket.to(roomId).emit('user-typing', {
-      userName,
-      userType,
-      isTyping: true
-    });
-  });
-
-  socket.on("typing-stop", (data) => {
-    const { roomId, userName, userType } = data;
-    socket.to(roomId).emit('user-typing', {
-      userName,
-      userType,
-      isTyping: false
-    });
-  });
-
-  // Handle message read status
-  socket.on("mark-messages-read", async (data) => {
+  // Handle chat history requests
+  socket.on("get-chat-history", async (data) => {
     try {
-      const { roomId, userId } = data;
+      const { recipientId, limit = 50 } = data;
       
-      // Update read status in database
-      const unreadSnapshot = await db.collection("chatRooms")
-        .doc(roomId)
-        .collection("messages")
-        .where("read", "==", false)
-        .where("from", "!=", userId)
-        .get();
-
-      if (!unreadSnapshot.empty) {
-        const batch = db.batch();
-        unreadSnapshot.forEach(doc => {
-          batch.update(doc.ref, { read: true });
-        });
-        await batch.commit();
-
-        // Notify room about read status
-        socket.to(roomId).emit('messages-read', {
-          readBy: userId,
-          count: unreadSnapshot.size
-        });
-
-        console.log(`👁️ Marked ${unreadSnapshot.size} messages as read in ${roomId}`);
+      if (!recipientId) {
+        socket.emit('chat-history-error', { error: 'Missing recipient ID' });
+        return;
       }
+      
+      const sender = socket.userData;
+      if (!sender) {
+        socket.emit('chat-history-error', { error: 'User not authenticated' });
+        return;
+      }
+      
+      // Create chat room ID the same way as send-message
+      const participants = [sender.phone, recipientId].sort();
+      const chatId = `chat_${participants[0]}_${participants[1]}`;
+      
+      // Query messages for this chat
+      const messagesSnapshot = await db.collection("messages")
+        .where("chatId", "==", chatId)
+        .orderBy("timestamp", "desc")
+        .limit(limit)
+        .get();
+      
+      const messages = [];
+      messagesSnapshot.forEach(doc => {
+        const messageData = doc.data();
+        messages.push({
+          id: doc.id,
+          senderId: messageData.senderId,
+          senderName: messageData.senderName,
+          senderType: messageData.senderType,
+          message: messageData.message,
+          timestamp: messageData.timestamp.toDate().toISOString(),
+          chatId: messageData.chatId
+        });
+      });
+      
+      // Send messages to requester
+      socket.emit('chat-history', {
+        chatId,
+        recipientId,
+        messages: messages.reverse() // Send in chronological order
+      });
+      
+      console.log(`� Sent ${messages.length} messages from chat ${chatId}`);
 
     } catch (error) {
-      console.error("❌ Error marking messages as read:", error);
+      console.error("❌ Error fetching chat history:", error);
+      socket.emit('chat-history-error', { error: 'Failed to fetch chat history' });
     }
   });
 
-  // Handle instructor events
-  socket.on("student-added", (studentData) => {
-    io.emit("student-list-updated", studentData);
-    console.log(`📚 Student added broadcast: ${studentData.name}`);
-  });
-
-  socket.on("lesson-assigned", (lessonData) => {
-    const { studentPhone } = lessonData;
-    io.to(`user_${studentPhone}`).emit("new-lesson", lessonData);
-    console.log(`📖 Lesson assigned to: ${studentPhone}`);
-  });
-
-  // Handle student events
-  socket.on("lesson-completed", (lessonData) => {
-    io.emit("lesson-completed", lessonData);
-    console.log(`✅ Lesson completed: ${lessonData.title}`);
-  });
-
-  // Handle disconnect
+  // Handle user disconnect
   socket.on("disconnect", () => {
-    const userData = connectedUsers.get(socket.id);
-    if (userData) {
-      // Notify others user is offline
+    const userId = userSockets.get(socket.id);
+    
+    if (userId) {
+      // Get user data for the notification
+      const userData = socket.userData || {};
+      
+      // Notify others this user is offline
       socket.broadcast.emit('user-offline', {
-        phone: userData.phone,
+        id: userId,
         userType: userData.userType,
         name: userData.name
       });
       
-      connectedUsers.delete(socket.id);
-      console.log(`👋 User disconnected: ${userData.name} (${userData.userType})`);
+      // Clean up user mappings
+      connectedUsers.delete(userId);
+      userSockets.delete(socket.id);
+      
+      console.log(`👋 User disconnected: ${userData.name || userId}`);
     } else {
-      console.log("👋 Client disconnected:", socket.id);
+      console.log("👋 Unknown client disconnected:", socket.id);
     }
   });
 
